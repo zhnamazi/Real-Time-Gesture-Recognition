@@ -1,3 +1,9 @@
+"""
+This module implements a motion detection system based on the velocity and acceleration of hand landmarks.
+It uses an energy-based approach, calculating the sum of all landmark velocities to determine whether the hand is in motion or static.
+The MotionGate class maintains a history of landmark positions and computes velocities and accelerations to classify the motion state.
+"""
+
 import numpy as np
 from collections import deque
 
@@ -5,6 +11,10 @@ class MotionGate:
     """
     Motion detection based on velocity and acceleration of hand landmarks.
     Uses energy-based approach (sum of all landmark velocities).
+    Attributes:
+        buffer_size: Size of the history buffer
+        velocity_threshold: Threshold for detecting motion based on velocity
+        acceleration_threshold: Threshold for detecting motion based on acceleration
     """
     
     def __init__(self, buffer_size=15, velocity_threshold=0.02, acceleration_threshold=0.008):
@@ -19,7 +29,13 @@ class MotionGate:
         self.velocities = deque(maxlen=buffer_size)
     
     def update(self, landmarks):
-        """Update with new frame landmarks"""
+        """
+        Update the motion gate with new hand landmarks.
+        Inputs:
+            landmarks: List of hand landmarks (21 points)
+        Returns:
+            None
+        """
         if landmarks is None or len(landmarks) < 21:
             return
         
@@ -46,7 +62,9 @@ class MotionGate:
     def get_motion_type(self):
         """
         Determine if motion is static or dynamic
-        Returns: 'static', 'dynamic', or 'unknown'
+        If the average velocity is above the threshold, classify as dynamic; otherwise, static.
+        Returns:
+            'static' if motion is below thresholds, 'dynamic' if above thresholds, or 'unknown' if insufficient data
         """
         
         if len(self.landmarks_history) < 5:
@@ -76,35 +94,17 @@ class MotionGate:
             return 'dynamic'
         else:
             return 'static'
-    
-    def get_motion_info(self):
-        """Debug info: return motion metrics"""
-        if len(self.velocities) == 0:
-            return {'avg_velocity': 0.0, 'acceleration': 0.0, 'motion_type': 'unknown - zero velocity history'}
-        
-        avg_velocity = np.mean(list(self.velocities))
-        
-        if len(self.velocities) >= 3:
-            velocity_list = list(self.velocities)
-            acceleration = np.std(velocity_list)
-        else:
-            acceleration = 0.0
-        
-        return {
-            'avg_velocity': avg_velocity,
-            'acceleration': acceleration,
-            'motion_type': self.get_motion_type(),
-            'buffer_size': len(self.landmarks_history),
-            'velocity_threshold': self.velocity_threshold,
-            'acceleration_threshold': self.acceleration_threshold
-        }
 
     def get_trajectory(self, method='wrist'):
         """
         Returns trajectory based on method
-        method='wrist': wrist position (landmark 0)
-        method='center': center of all landmarks (palm center)
-        method='fingertips': average of fingertip positions (landmarks 4,8,12,16,20)
+            method='wrist': wrist position (landmark 0)
+            method='center': center of all landmarks (palm center)
+            method='fingertips': average of fingertip positions (landmarks 4,8,12,16,20)
+        Inputs:
+            method: str, method to compute trajectory
+        Returns:  
+            trajectory: list of (x,y) tuples representing the trajectory
         """
         if len(self.landmarks_history) < 5:
             return None

@@ -1,6 +1,10 @@
+.vscode/
 bp_venv/
+datasets/
 research/
+src/__pycache__/
+training/artifacts/
+document_draft.txt
 project_structure.txt
 structure.md
-datasets/
-confusion_matrix.png
+todo.txt

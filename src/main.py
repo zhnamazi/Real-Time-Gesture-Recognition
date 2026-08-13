@@ -1,3 +1,8 @@
+"""
+Main script for real-time hand gesture recognition using MediaPipe Hand Landmarker and a trained classifier.
+This script captures hand gestures from a webcam, classifies them as static or dynamic, and displays the results in real-time.
+"""
+
 import math
 import cv2
 import numpy as np
@@ -10,9 +15,9 @@ from collections import deque
 from motion_gate import MotionGate
 from dynamic_detection import DynamicGestureDetector
 
-MODEL_PATH = "./src/hand_landmarker.task"
-CLASSIFIER_PATH = "./training/gesture_classifier_mlp.pkl"
-SCALER_PATH = "./training/gesture_scaler.pkl"
+MODEL_PATH = "./src/artifacts/hand_landmarker.task"
+CLASSIFIER_PATH = "./src/artifacts/gesture_classifier_mlp.pkl"
+SCALER_PATH = "./src/artifacts/gesture_scaler.pkl"
 
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),
@@ -25,6 +30,14 @@ HAND_CONNECTIONS = [
 
 
 def draw_landmarks_on_image(rgb_image, detection_result):
+    """
+    Draw hand landmarks and connections on the image.
+    Inputs:
+        rgb_image: numpy array representing the RGB image
+        detection_result: MediaPipe HandLandmarker result containing hand landmarks and handedness
+    Returns:
+        annotated_image: numpy array representing the image with drawn landmarks and connections
+    """
     hand_landmarks_list = detection_result.hand_landmarks
     handedness_list = detection_result.handedness
     
@@ -60,7 +73,14 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 
 
 def extract_features(landmarks):
-    """Extract normalized features from landmarks"""
+    """
+    Extract features from hand landmarks for gesture classification.
+    Features include normalized coordinates, finger extension ratios, angles, and fingertip distances.
+    Inputs:
+        landmarks: List of hand landmarks
+    Returns:
+        features: Array of extracted features
+    """
     features = []
     
     # Normalize relative to wrist (landmark 0)
@@ -132,6 +152,8 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap.set(cv2.CAP_PROP_FPS, 30)
+    last_visualize = time.time()
+    visualization = False
     
     print("Loading Hand Landmarker...")
     try:
@@ -160,10 +182,11 @@ def main():
         return
     
     print("Press ESC to exit")
+    print("\nPress 'a' to analyze trajectory, or continue...")
     
     motion_gate = MotionGate(
     buffer_size=20,
-    velocity_threshold=0.16,      # Adjust if needed
+    velocity_threshold=0.16,     # Adjust if needed
     acceleration_threshold=0.6   # Adjust if needed
 )
     dynamic_detector = DynamicGestureDetector()
@@ -206,7 +229,7 @@ def main():
             # Update motion gate
             motion_gate.update(landmarks)
             motion_type = motion_gate.get_motion_type()
-            motion_type = 'dynamic'
+
             # # Static path: MLP classification
             if motion_type == 'static':
                 features = extract_features(landmarks).reshape(1, -1)
@@ -232,13 +255,15 @@ def main():
                     'fingertips': motion_gate.get_trajectory(method='fingertips')
                 }
                 best_gesture, best_confidence = dynamic_detector.detect_best_match(trajectory_by_method)
-                if best_confidence > 0.5:  # Confidence threshold
+                if best_confidence > 0.85:  # Confidence threshold
                     predicted_gesture = best_gesture
                     confidence = best_confidence
+                    if time.time() - last_visualize > 5:
+                        visualization = True
+                        last_visualize = time.time()
                 else:
-                    predicted_gesture = "no_gesture"
-                    confidence = 0.0
-                # print(best_gesture, best_confidence)
+                    predicted_gesture = f"no_gesture but almost {best_gesture}"
+               
         
         # Draw status
         y_offset = 30
@@ -270,6 +295,11 @@ def main():
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         cv2.imshow('Gesture Recognition', annotated_frame)
+
+        # visualization
+        # if visualization:
+        #     dynamic_detector.visualize_templates(trajectory_by_method, normalize=True)
+        #     visualization = False
         
         if cv2.waitKey(1) & 0xFF == 27:
             print("\nExit")

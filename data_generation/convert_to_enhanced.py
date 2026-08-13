@@ -1,12 +1,13 @@
-#!/usr/bin/env python3
+"""
+This script is used to convert the hand gesture dataset to an enhanced version with additional features.
+"""
 
 import pandas as pd
-import numpy as np
 import math
 import csv
 
-OLD_CSV = "../dataset/hand_gestures_dataset_v3.csv"  # Your old file with 63 features
-NEW_CSV = "../dataset/hand_gestures_dataset_v4.csv"  # New file with 83 features
+OLD_CSV = "./datasets/hand_gestures_dataset_v3.csv"  # Your old file with 63 features
+NEW_CSV = "./datasets/hand_gestures_dataset_v4.csv"  # New file with 83 features
 
 print(f"Reading old dataset from {OLD_CSV}...")
 df = pd.read_csv(OLD_CSV)

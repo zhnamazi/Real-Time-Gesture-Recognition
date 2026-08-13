@@ -1,45 +1,42 @@
+"""
+This module implements dynamic gesture detection using Dynamic Time Warping (DTW) to compare gesture trajectories against stored templates.
+It supports multiple trajectory methods (wrist, center, fingertips) and provides visualization of both templates and current gestures.
+"""
+
+from matplotlib import pyplot as plt
 import numpy as np
 import pickle
 import os
-from dtaidistance import dtw
 
 class DynamicGestureDetector:
-    """Detect dynamic gestures using DTW template matching with gesture-specific trajectory methods"""
+    """
+    Dynamic Gesture Detector using DTW
+    Templates are expected as:
+              - increase_volume_0.pkl, increase_volume_1.pkl, ...
+              - decrease_volume_0.pkl, decrease_volume_1.pkl, ...
+              - bye_0.pkl, bye_1.pkl, ...
     
-    def __init__(self, templates_dir="./datasets/dynamic_templates"):
-        """
-        Load gesture templates from directory
-        Templates are expected as:
-          - increase_volume_0.pkl, increase_volume_1.pkl, ...
-          - decrease_volume_0.pkl, decrease_volume_1.pkl, ...
-          - bye_0.pkl, bye_1.pkl, ...
-        
-        Trajectory methods per gesture:
-          - increase_volume: 'wrist' (wrist moves diagonally up)
-          - decrease_volume: 'wrist' (wrist moves diagonally down)
-          - bye: 'center' (palm center trajectory; hand shape changes, wrist stable)
-        
-        To test different methods, simply change the value in self.trajectory_methods dict.
-        """
+    Attributes:
+        templates_dir: directory containing gesture templates
+    """
+    
+    def __init__(self, templates_dir="./src/artifacts/dynamic_templates"):
         self.templates_dir = templates_dir
         self.gesture_names = ["increase_volume", "decrease_volume", "bye"]
         self.templates = {name: [] for name in self.gesture_names}
         
-        # Define which trajectory method to use for each gesture
-        # EDIT THESE TO TEST DIFFERENT METHODS:
-        self.trajectory_methods = {
-            "increase_volume": "wrist",      # Motion-based gestures use wrist
-            "decrease_volume": "wrist",      # Motion-based gestures use wrist
-            "bye": "center"                  # Shape-based gesture uses palm center
-            # To test fingertips for bye, change to: "bye": "fingertips"
-        }
-        
-        self.dtw_threshold = 0.5  # Threshold for confidence (normalized DTW distance)
-        
         self.load_templates()
     
     def load_templates(self):
-        """Load all template trajectories from directory"""
+        """
+        Load all template landmarks from directory
+        
+        Inputs:
+            templates_dir: directory containing gesture templates
+
+        Returns:
+            None
+        """
         if not os.path.exists(self.templates_dir):
             print(f"Warning: Templates directory not found: {self.templates_dir}")
             return
@@ -52,21 +49,168 @@ class DynamicGestureDetector:
                     filepath = os.path.join(self.templates_dir, filename)
                     try:
                         with open(filepath, 'rb') as f:
-                            trajectory = pickle.load(f)
-                            self.templates[gesture_name].append(trajectory)
+                            landmarks = pickle.load(f)
+                            self.templates[gesture_name].append(landmarks)
                             count += 1
                     except Exception as e:
                         print(f"Error loading template {filepath}: {e}")
             
-            method = self.trajectory_methods.get(gesture_name, "wrist")
             if count > 0:
-                print(f"Loaded {count} templates for {gesture_name} (method: {method})")
+                print(f"Loaded {count} templates for {gesture_name}")
             else:
                 print(f"No templates found for {gesture_name}")
     
     @staticmethod
+    def normalize_trajectory(traj):
+        """
+        Translation normalization:
+        Shift trajectory so that it starts at (0,0).
+        
+        Inputs:
+            traj: numpy array of shape (N, 2) representing the trajectory points
+
+        Returns:
+            normalized_traj: numpy array of shape (N, 2) with the first point at (0,0)
+        """
+        traj = np.asarray(traj, dtype=np.float64)
+
+        if len(traj) == 0:
+            return traj
+
+        return traj - traj[0]
+
+    def visualize_templates(self, current_trajectory, normalize=False):
+        """
+        Visualize all stored templates grouped by gesture and trajectory method.
+        
+        Inputs:
+            current_trajectory: dict with keys 'wrist', 'center', 'fingertips' containing the current gesture trajectory
+            normalize: boolean indicating whether to normalize trajectories for visualization
+
+        Returns:
+            None
+        """
+
+        methods = ["wrist", "center", "fingertips"]
+
+        fig, axes = plt.subplots(
+            len(self.gesture_names) + 1,
+            len(methods),
+            figsize=(10, 8)
+        )
+
+        colors = ["r", "g", "b", "m", "c", "y", "k"]
+
+        # Display trajectory of template gestures
+        for row, gesture in enumerate(self.gesture_names):
+
+            for col, method in enumerate(methods):
+
+                ax = axes[row][col]
+
+                templates = self.templates[gesture]
+
+                for i, template_dict in enumerate(templates):
+
+                    traj = template_dict[method]
+
+                    if traj is None or len(traj) == 0:
+                        continue
+
+                    traj = np.array(traj, dtype=np.float64)
+                    if normalize:
+                        traj = self.normalize_trajectory(traj)
+
+                    ax.plot(
+                        traj[:,0],
+                        traj[:,1],
+                        color=colors[i % len(colors)],
+                        linewidth=2,
+                        label=f"T{i}"
+                    )
+
+                    # Draw start point
+                    ax.scatter(
+                        traj[0,0],
+                        traj[0,1],
+                        color=colors[i % len(colors)],
+                        marker='o'
+                    )
+
+                    # Draw end point
+                    ax.scatter(
+                        traj[-1,0],
+                        traj[-1,1],
+                        color=colors[i % len(colors)],
+                        marker='x'
+                    )
+
+                ax.set_title(f"{gesture}\n{method}")
+                ax.set_aspect("equal")
+                ax.invert_yaxis()
+                ax.grid(True)
+
+        # Display trajectory of real (current) gestures
+        for col, method in enumerate(methods):
+        
+            ax = axes[-1][col]
+            traj = current_trajectory[method]
+
+            if traj is None or len(traj) == 0:
+                continue
+
+            traj = np.array(traj, dtype=np.float64)
+            if normalize:
+                traj = self.normalize_trajectory(traj)
+
+            ax.plot(
+                traj[:,0],
+                traj[:,1],
+                color=colors[(len(self.gesture_names) + 1) % len(colors)],
+                linewidth=2,
+                label=f"T{i}"
+            )
+
+            # Draw start point
+            ax.scatter(
+                traj[0,0],
+                traj[0,1],
+                color=colors[(len(self.gesture_names) + 1) % len(colors)],
+                marker='o'
+            )
+
+            # Draw end point
+            ax.scatter(
+                traj[-1,0],
+                traj[-1,1],
+                color=colors[(len(self.gesture_names) + 1) % len(colors)],
+                marker='x'
+            )
+
+            ax.set_title(f"current gesture\n{method}")
+            ax.set_aspect("equal")
+            ax.invert_yaxis()
+            ax.grid(True)
+
+            
+        handles, labels = axes[0][0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="upper right")
+
+        plt.tight_layout()
+        plt.show()
+
+    @staticmethod
     def trajectory_to_sequence(trajectory):
-        """Convert trajectory (list of (x,y) tuples) to numpy array for DTW"""
+        """
+        Convert trajectory (list of (x,y) tuples) to numpy array for DTW
+        
+        Inputs:
+            trajectory: list of (x,y) tuples representing the gesture trajectory
+
+        Returns:   
+            numpy array of shape (N, 2) representing the trajectory points
+        """
+
         if trajectory is None or len(trajectory) == 0:
             return None
         return np.array(trajectory, dtype=np.float32)
@@ -75,34 +219,37 @@ class DynamicGestureDetector:
     def dtw_distance(traj1, traj2):
         """
         Calculate DTW distance between two trajectories
-        Returns: distance (lower is better)
+        Inputs:
+            traj1: numpy array of shape (N, 2) representing the first trajectory
+            traj2: numpy array of shape (M, 2) representing the second trajectory
+        
+        Returns:
+            dtw_distance: float representing the DTW distance between the two trajectories (lower is more similar)
         """
         if traj1 is None or traj2 is None or len(traj1) < 3 or len(traj2) < 3:
             print("Warning: One or both trajectories are too short for DTW calculation.")
             return float('inf')
         
-        try:
-            # Ensure C-contiguous float64 arrays for dtaidistance
-            # Extract x and y coordinates
-            x1 = np.array([p[0] for p in traj1], dtype=np.float64)
-            y1 = np.array([p[1] for p in traj1], dtype=np.float64)
-            
-            x2 = np.array([p[0] for p in traj2], dtype=np.float64)
-            y2 = np.array([p[1] for p in traj2], dtype=np.float64)
-            
-            # Calculate DTW for each dimension
-            distance_x = dtw.distance(x1, x2)
-            distance_y = dtw.distance(y1, y2)
-            
-            # Average or weighted combination
-            distance = (distance_x + distance_y) / 2.0
-            
-            return distance
-        except Exception as e:
-            print(f"DTW error: {type(e).__name__}: {e}")
-            print(f"  traj1 shape: {traj1.shape}, dtype: {traj1.dtype}")
-            print(f"  traj2 shape: {traj2.shape}, dtype: {traj2.dtype}")
-            return float('inf')
+        traj1 = DynamicGestureDetector.normalize_trajectory(traj1)
+        traj2 = DynamicGestureDetector.normalize_trajectory(traj2)
+
+        n = len(traj1)
+        m = len(traj2)
+
+        dtw_matrix = np.full((n + 1, m + 1), np.inf)
+        dtw_matrix[0, 0] = 0
+
+        for i in range(1, n + 1):
+            for j in range(1, m + 1):
+                cost = np.linalg.norm(traj1[i-1] - traj2[j-1])
+
+                dtw_matrix[i, j] = cost + min(
+                    dtw_matrix[i-1, j],      # insertion
+                    dtw_matrix[i, j-1],      # deletion
+                    dtw_matrix[i-1, j-1]     # match
+                )
+
+        return dtw_matrix[n, m]
     
     @staticmethod
     def normalize_dtw_score(distance, traj_len):
@@ -110,6 +257,13 @@ class DynamicGestureDetector:
         Normalize DTW distance to get confidence [0, 1]
         Lower distance = higher confidence
         Uses path length as normalization factor
+        
+        Inputs:
+            distance: float representing the DTW distance between two trajectories
+            traj_len: int representing the length of the trajectory being evaluated
+        
+        Returns:
+            confidence: float in [0, 1] representing the normalized confidence score
         """
         if distance == float('inf') or distance is None:
             return 0.0
@@ -121,8 +275,13 @@ class DynamicGestureDetector:
     def detect_gesture(self, trajectory_by_method, gesture_name):
         """
         Detect gesture using all 3 trajectory methods (ensemble)
-        trajectory_by_method: dict with 'wrist', 'center', 'fingertips'
-        Returns: (is_detected, confidence)
+
+        Inputs:
+            trajectory_by_method: dict with keys 'wrist', 'center', 'fingertips' containing the current gesture trajectory
+            gesture_name: string representing the name of the gesture to detect
+
+        Returns:
+            confidence: float in [0, 1] representing the normalized confidence score for the gesture
         """
         if trajectory_by_method is None:
             print(f"Trajectory too short for gesture {gesture_name}: length {len(trajectory)}")
@@ -160,34 +319,24 @@ class DynamicGestureDetector:
         
         # Combine scores from all methods (average)
         combined_confidence = np.mean(list(dtw_scores.values()))
-        is_detected = combined_confidence > self.dtw_threshold
         
-        return is_detected, combined_confidence
-    
-    def detect_increase_volume(self, trajectory):
-        """Detect increase_volume gesture using DTW (wrist trajectory)"""
-        return self.detect_gesture(trajectory, "increase_volume")
-    
-    def detect_decrease_volume(self, trajectory):
-        """Detect decrease_volume gesture using DTW (wrist trajectory)"""
-        return self.detect_gesture(trajectory, "decrease_volume")
-    
-    def detect_bye(self, trajectory):
-        """Detect bye gesture using DTW (palm center trajectory)"""
-        return self.detect_gesture(trajectory, "bye")
+        return combined_confidence
     
     def detect_best_match(self, trajectory_by_method):
         """
         Detect which gesture trajectory best matches (ensemble of all 3 methods)
-        trajectory_by_method: dict with keys 'wrist', 'center', 'fingertips'
-        Returns: (gesture_name, confidence)
+        Inputs:
+            trajectory_by_method: dict with keys 'wrist', 'center', 'fingertips' containing the current gesture trajectory
+        
+        Returns:
+            best_gesture: string representing the name of the best matching gesture
+            best_confidence: float representing the confidence score of the best match
         """
         best_gesture = "no_gesture"
         best_confidence = 0.0
         
         for gesture_name in self.gesture_names:
-            is_detected, confidence = self.detect_gesture(trajectory_by_method, gesture_name)
-            # print(f"Gesture: {gesture_name}, Method: {method}, Detected: {is_detected}, Confidence: {confidence:.3f}")
+            confidence = self.detect_gesture(trajectory_by_method, gesture_name)
             if confidence > best_confidence:
                 best_confidence = confidence
                 best_gesture = gesture_name

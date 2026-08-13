@@ -1,3 +1,9 @@
+"""
+This script performs static gesture recognition using a trained classifier and MediaPipe's Hand Landmarker.
+It captures video from the webcam, detects hand landmarks, extracts features, and classifies gestures in real-time.
+The script also displays the annotated video feed with detected landmarks, gesture predictions, and confidence scores.
+"""
+
 import math
 import cv2
 import numpy as np
@@ -8,9 +14,9 @@ import pickle
 import time
 from collections import deque
 
-MODEL_PATH = "./src/hand_landmarker.task"
-CLASSIFIER_PATH = "./training/gesture_classifier_mlp.pkl"
-SCALER_PATH = "./training/gesture_scaler.pkl"
+MODEL_PATH = "./src/artifacts/hand_landmarker.task"
+CLASSIFIER_PATH = "./training/artifacts/mlp/gesture_classifier_mlp.pkl"
+SCALER_PATH = "./training/artifacts/gesture_scaler.pkl"
 
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),
@@ -22,75 +28,15 @@ HAND_CONNECTIONS = [
 ]
 
 
-# class MotionGate:
-#     def __init__(self, buffer_size=20, motion_threshold=0.08):
-#         self.buffer_size = buffer_size
-#         self.motion_threshold = motion_threshold
-#         self.wrist_positions = deque(maxlen=buffer_size)
-    
-#     def update(self, landmarks):
-#         if landmarks and len(landmarks) > 0:
-#             wrist = landmarks[0]
-#             self.wrist_positions.append((wrist.x, wrist.y))
-    
-#     def get_motion_type(self):
-#         if len(self.wrist_positions) < 5:
-#             return 'unknown'
-        
-#         total_displacement = 0.0
-#         for i in range(1, len(self.wrist_positions)):
-#             prev = self.wrist_positions[i-1]
-#             curr = self.wrist_positions[i]
-#             distance = np.sqrt((curr[0] - prev[0])**2 + (curr[1] - prev[1])**2)
-#             total_displacement += distance
-        
-#         avg_displacement = total_displacement / (len(self.wrist_positions) - 1)
-        
-#         if avg_displacement > self.motion_threshold:
-#             return 'dynamic'
-#         else:
-#             return 'static'
-    
-#     def get_trajectory(self):
-#         """Returns trajectory for dynamic gesture analysis"""
-#         if len(self.wrist_positions) < 5:
-#             return None
-#         return list(self.wrist_positions)
-
-
-class DynamicGestureDetector:
-    """Detect dynamic gestures like increase_volume based on trajectory"""
-    
-    @staticmethod
-    def detect_increase_volume(trajectory):
-        """
-        Detect upward diagonal motion (increase volume gesture)
-        trajectory: list of (x, y) positions
-        """
-        if trajectory is None or len(trajectory) < 10:
-            return False, 0.0
-        
-        # Calculate displacement
-        start_x, start_y = trajectory[0]
-        end_x, end_y = trajectory[-1]
-        
-        dx = end_x - start_x
-        dy = end_y - start_y
-        
-        # Upward motion (negative dy)
-        upward = dy < -0.1
-        
-        # Diagonal (some lateral movement)
-        has_lateral = 0.05 < abs(dx) < 0.4
-        
-        if upward and has_lateral:
-            confidence = min(1.0, abs(dy) / 0.3)  # Normalize confidence
-            return True, confidence
-        
-        return False, 0.0
-
-
 def draw_landmarks_on_image(rgb_image, detection_result):
+    """
+    Draws hand landmarks and connections on the image.
+    Inputs:
+        rgb_image: The input image in RGB format
+        detection_result: The result from the hand landmarker detection
+    Returns:
+        annotated_image: The image with landmarks and connections drawn
+    """
     hand_landmarks_list = detection_result.hand_landmarks
     handedness_list = detection_result.handedness
     
@@ -126,7 +72,13 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 
 
 def extract_features(landmarks):
-    """Extract normalized features from landmarks"""
+    """
+    Extract normalized features from landmarks
+    Inputs:
+        landmarks: List of hand landmarks (21 points)
+    Returns:
+        features: Numpy array of extracted features
+    """
     features = []
     
     # Normalize relative to wrist (landmark 0)
@@ -227,9 +179,6 @@ def main():
     
     print("Press ESC to exit")
     
-    # motion_gate = MotionGate(buffer_size=20, motion_threshold=0.08)
-    dynamic_detector = DynamicGestureDetector()
-    
     frame_count = 0
     fps_time = time.time()
     inference_times = deque(maxlen=30)
@@ -260,20 +209,11 @@ def main():
         
         predicted_gesture = "no_gesture"
         confidence = 0.0
-        motion_type = "unknown"
         
         if len(detection_result.hand_landmarks) > 0:
             landmarks = detection_result.hand_landmarks[0]
             
-            # # Update motion gate
-            # motion_gate.update(landmarks)
-            # motion_type = motion_gate.get_motion_type()
-            
-            # # Static path: MLP classification
-            # if motion_type == 'static':
-            motion_type = 'static'
             features = extract_features(landmarks).reshape(1, -1)
-            # print(features)
             features_scaled = scaler.transform(features)
             
             prediction = classifier.predict(features_scaled)[0]
@@ -286,22 +226,10 @@ def main():
             else:
                 predicted_gesture = "no_gesture"
                 confidence = 1.0 - max_confidence
-            
-            # # Dynamic path: trajectory analysis
-            # elif motion_type == 'dynamic':
-            #     trajectory = motion_gate.get_trajectory()
-            #     is_volume_up, conf = dynamic_detector.detect_increase_volume(trajectory)
-                
-            #     if is_volume_up and conf > 0.5:
-            #         predicted_gesture = "increase_volume"
-            #         confidence = conf
-            #     else:
-            #         predicted_gesture = "no_gesture"
-            #         confidence = 0.5
         
         # Draw status
         y_offset = 30
-        cv2.putText(annotated_frame, f"Motion: {motion_type}", (10, y_offset),
+        cv2.putText(annotated_frame, f"Motion: static", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         y_offset += 30

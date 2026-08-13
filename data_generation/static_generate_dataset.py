@@ -1,13 +1,17 @@
-import math
+"""
+This script captures hand gesture data using a webcam and saves the extracted features into a CSV file for machine learning purposes.
+It uses MediaPipe's Hand Landmarker to detect hand landmarks and extracts enhanced features including normalized coordinates, finger extension ratios, finger angles, and fingertip distances.
+"""
 
+import math
 import cv2
 import csv
 import os
 import mediapipe as mp
 
 # Configuration
-MODEL_PATH = "./src/hand_landmarker.task" 
-CSV_FILE = "./dataset/hand_gestures_dataset_v6.csv"
+MODEL_PATH = "./src/artifacts/hand_landmarker.task" 
+CSV_FILE = "./datasets/hand_gestures_dataset_v6.csv"
 TARGET_SAMPLES = 1500
 SAMPLE_RATE = 5  # Frames per second. default fps is 30
 
@@ -18,7 +22,12 @@ def extract_enhanced_features(landmarks):
     - Finger extension ratios (5 features)
     - Finger angles (5 features)
     - Fingertip distances (10 features)
-    Total: 83 features
+    
+    input: 
+        landmarks: list of 21 hand landmarks
+
+    return:
+        features: list of extracted features (total 83 features)
     """
     
     features = []
@@ -185,7 +194,7 @@ while cap.isOpened():
 
             # Check if we reached the target number of samples
             if sample_count >= TARGET_SAMPLES:
-                print(f"\n✅ Target of {TARGET_SAMPLES} samples reached for class '{class_name}'!")
+                print(f"\nTarget of {TARGET_SAMPLES} samples reached for class '{class_name}'!")
                 break
 
     # Display recording status and sample count

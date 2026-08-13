@@ -1,11 +1,16 @@
+"""
+This script captures dynamic gesture templates using a webcam and the MediaPipe Hand Landmarker model.
+It allows the user to select gestures, record their trajectories, and save them for later use.
+"""
+
 import sys
 import cv2
 import numpy as np
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import mediapipe as mp
-import pickle
 import os
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
@@ -26,10 +31,21 @@ GESTURE_METHODS = {
 }
 
 def save_template(gesture_name, trajectories_dict, sample_num):
-    """Save dict of 3 trajectories (wrist, center, fingertips)"""
+    """
+    Save dict of 3 trajectories (wrist, center, fingertips)
+    
+    Input:
+        gesture_name: str, name of the gesture
+        trajectories_dict: dict, contains 3 keys: 'wrist', 'center', 'fingertips', each with a list of 3D coordinates
+        sample_num: int, sample number for the gesture
+
+    Returns:
+        None
+    """
     filename = f"{TEMPLATES_DIR}/{gesture_name}_{sample_num}.pkl"
-    with open(filename, 'wb') as f:
-        pickle.dump(trajectories_dict, f)
+    print(trajectories_dict)
+    # with open(filename, 'wb') as f:
+    #     pickle.dump(trajectories_dict, f)
     num_frames = len(trajectories_dict['wrist'])
     print(f"Saved: {filename} (length: {num_frames} frames)")
 
@@ -61,12 +77,11 @@ def main():
         return
     
     motion_gate = MotionGate(
-        buffer_size=20,
+        buffer_size=40,
         velocity_threshold=0.16,
         acceleration_threshold=0.6
     )
     
-    # gesture_index = 0
     sample_count = {g: 0 for g in GESTURE_NAMES}
     
     print("\n" + "="*60)
@@ -115,17 +130,6 @@ def main():
                 x = int(landmark.x * w)
                 y = int(landmark.y * h)
                 cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
-            
-            # # Draw wrist trajectory (last 20 frames)
-            # method = GESTURE_METHODS[current_gesture]
-            # trajectory = motion_gate.get_trajectory(method=method)
-            # if trajectory and len(trajectory) > 1:
-            #     for i in range(len(trajectory) - 1):
-            #         x1 = int(trajectory[i][0] * w)
-            #         y1 = int(trajectory[i][1] * h)
-            #         x2 = int(trajectory[i+1][0] * w)
-            #         y2 = int(trajectory[i+1][1] * h)
-            #         cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
         
         # Display status
         status_color = (0, 255, 0)

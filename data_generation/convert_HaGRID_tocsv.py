@@ -1,20 +1,31 @@
+"""
+This script is used to convert the HaGRID dataset's JSON annotations into a CSV format suitable for training machine learning models.
+It extracts enhanced features from the hand landmarks, including normalized coordinates, finger extension ratios, angles, and fingertip distances.
+"""
+
 import json
 import csv
 import math
 
-JSON_FILE = "../dataset/HaGRID/dislike annotation/dislike.json"  # Your HaGRID JSON file
-OUTPUT_CSV = "../dataset/hand_gestures_dataset_v5.csv"
+JSON_FILE = "./datasets/HaGRID/dislike annotation/dislike.json"  # HaGRID JSON file
+OUTPUT_CSV = "./datasets/hand_gestures_dataset_v5.csv" # Output CSV file
 FILTER_CLASSES = ["like", "dislike"]  # Only these classes
 
 def extract_enhanced_features_from_landmarks(landmarks):
     """
     Convert 21 landmarks to 83 enhanced features
     landmarks: list of 21 (x, y) tuples
+
+    Inputs:
+        - landmarks: list of 21 (x, y) tuples representing hand landmarks
+    
+    Returns:
+        - features: list of 83 features including normalized coordinates, finger extension ratios, angles, and fingertip distances
     """
     
     features = []
     
-    # 1. Normalize coordinates relative to wrist (landmark 0)
+    # Normalize coordinates relative to wrist (landmark 0)
     wrist_x = landmarks[0][0]
     wrist_y = landmarks[0][1]
     
@@ -32,6 +43,7 @@ def extract_enhanced_features_from_landmarks(landmarks):
     for x, y in landmarks:
         norm_x = (x - wrist_x) / scale_dist
         norm_y = (y - wrist_y) / scale_dist
+
         # Add dummy z coordinate (HaGRID only has x,y)
         normalized_landmarks.append((norm_x, norm_y, 0.0))
     
@@ -39,7 +51,7 @@ def extract_enhanced_features_from_landmarks(landmarks):
     for lm in normalized_landmarks:
         features.extend([lm[0], lm[1], lm[2]])
     
-    # 2. Finger extension ratios (5 features)
+    # Finger extension ratios (5 features)
     finger_tips = [4, 8, 12, 16, 20]
     finger_pips = [3, 7, 11, 15, 19]
     finger_mcps = [2, 6, 10, 14, 18]
@@ -64,14 +76,14 @@ def extract_enhanced_features_from_landmarks(landmarks):
         
         features.append(extension_ratio)
     
-    # 3. Finger angles (5 features)
+    # Finger angles (5 features)
     for tip in finger_tips:
         dy = normalized_landmarks[tip][1] - normalized_landmarks[0][1]
         dx = normalized_landmarks[tip][0] - normalized_landmarks[0][0]
         angle = math.atan2(dx, dy)
         features.append(angle)
     
-    # 4. Fingertip distances (10 features)
+    # Fingertip distances (10 features)
     for i in range(len(finger_tips)):
         for j in range(i+1, len(finger_tips)):
             tip_i = finger_tips[i]

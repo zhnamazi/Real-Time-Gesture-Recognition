@@ -1,3 +1,8 @@
+"""
+This script trains a gesture classification model using a dataset of hand gestures.
+The dataset is expected to be in CSV format, with the first column as the label and the remaining columns as features.
+"""
+
 import pandas as pd
 import pickle
 import matplotlib.pyplot as plt
@@ -9,11 +14,10 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 import seaborn as sns
 from sklearn.svm import SVC
 
-CSV_FILE = "./dataset/hand_gestures_dataset_v6.csv"
-MODEL_PATH = "./training/gesture_classifier_mlp.pkl"
-# MODEL_PATH = "gesture_classifier_rf.pkl"
-# MODEL_PATH = "gesture_classifier_svm.pkl"
-SCALER_PATH = "./training/gesture_scaler.pkl"
+MODEL_TYPE = 'mlp' # Options: 'rf', 'svm', 'mlp'
+CSV_FILE = "./datasets/hand_gestures_dataset_v6.csv"
+MODEL_PATH = f"./training/artifacts/{MODEL_TYPE}/gesture_classifier_{MODEL_TYPE}.pkl"
+SCALER_PATH = "./training/artifacts/gesture_scaler.pkl"
 
 print("Loading dataset...")
 df = pd.read_csv(CSV_FILE)
@@ -41,30 +45,32 @@ scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
-# Build MLP (lightweight for Raspberry Pi)
-print("\nTraining MLP classifier...")
-classifier = MLPClassifier(
-    hidden_layer_sizes=(128, 64, 32),  # 3 layers
-    # hidden_layer_sizes=(64),  # 2 layers
-    activation='relu',
-    max_iter=3,
-    learning_rate_init=0.001,
-    batch_size=16,
-    early_stopping=True,
-    validation_fraction=0.1,
-    alpha=0.01,
-    random_state=42,
-    verbose=1
-)
+# Build a lightweight for Raspberry Pi
+print(f"\nTraining {MODEL_TYPE} classifier...")
+
+if MODEL_TYPE == 'rf':
+    classifier = RandomForestClassifier(n_estimators=2, max_depth=3, random_state=42)
+
+elif MODEL_TYPE == 'svm':
+    classifier = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True)
+
+else:
+    classifier = MLPClassifier(
+        # hidden_layer_sizes=(128, 64, 32),  # 3 layers
+        hidden_layer_sizes=(64),  # 2 layers
+        activation='relu',
+        max_iter=3,
+        learning_rate_init=0.001,
+        batch_size=16,
+        early_stopping=True,
+        validation_fraction=0.1,
+        alpha=0.01,
+        random_state=42,
+        verbose=1
+    )
+
+
 classifier.fit(X_train_scaled, y_train)
-
-
-# classifier = RandomForestClassifier(n_estimators=2, max_depth=3, random_state=42)
-# classifier.fit(X_train_scaled, y_train)
-
-# classifier = SVC(kernel='rbf', C=1.0, gamma='scale', probability=True)
-# classifier.fit(X_train_scaled, y_train)
-
 
 # Evaluate
 y_pred = classifier.predict(X_test_scaled)
@@ -87,7 +93,7 @@ plt.title('Confusion Matrix')
 plt.ylabel('True Label')
 plt.xlabel('Predicted Label')
 plt.tight_layout()
-plt.savefig('confusion_matrix.png')
+plt.savefig(f'./training/artifacts/{MODEL_TYPE}/confusion_matrix.png')
 print("\nConfusion matrix saved as confusion_matrix.png")
 
 # Save model and scaler
