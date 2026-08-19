@@ -65,9 +65,9 @@ def draw_landmarks_on_image(rgb_image, detection_result):
             
             cv2.line(annotated_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
         
-        label = handedness[0].category_name
-        cv2.putText(annotated_image, label, (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        # label = handedness[0].category_name
+        # cv2.putText(annotated_image, label, (10, 30),
+        #            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     
     return annotated_image
 

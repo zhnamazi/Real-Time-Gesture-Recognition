@@ -1,6 +1,7 @@
 .vscode/
 bp_venv/
 datasets/
+docs/
 research/
 src/__pycache__/
 training/artifacts/
