@@ -14,10 +14,13 @@ import time
 from collections import deque
 from motion_gate import MotionGate
 from dynamic_detection import DynamicGestureDetector
+import onnxruntime as ort
+from config import conf_win
 
-MODEL_PATH = "./src/artifacts/hand_landmarker.task"
-CLASSIFIER_PATH = "./src/artifacts/gesture_classifier_mlp.pkl"
-SCALER_PATH = "./src/artifacts/gesture_scaler.pkl"
+MODEL_PATH = conf_win.MODEL_PATH
+CLASSIFIER_PATH_PKL = conf_win.CLASSIFIER_PATH_PKL
+SCALER_PATH = conf_win.SCALER_PATH
+CLASSIFIER_PATH_ONNX = conf_win.CLASSIFIER_PATH_ONNX
 
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),
@@ -143,27 +146,26 @@ def extract_features(landmarks):
 
 
 def main():
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(conf_win.CAMERA_INDEX)
     
     if not cap.isOpened():
         print("Error: Cannot open camera")
         return
     
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, conf_win.FRAME_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, conf_win.FRAME_HEIGHT)
+    cap.set(cv2.CAP_PROP_FPS, conf_win.FPS)
     last_visualize = time.time()
-    visualization = False
     
     print("Loading Hand Landmarker...")
     try:
         base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
-            num_hands=1,
-            min_hand_detection_confidence=0.5,
-            min_hand_presence_confidence=0.5,
-            min_tracking_confidence=0.5
+            num_hands=conf_win.NUM_HANDS,
+            min_hand_detection_confidence=conf_win.MIN_HAND_DETECTION_CONFIDENCE,
+            min_hand_presence_confidence=conf_win.MIN_HAND_PRESENCE_CONFIDENCE,
+            min_tracking_confidence=conf_win.MIN_TRACKING_CONFIDENCE
         )
         detector = vision.HandLandmarker.create_from_options(options)
     except Exception as e:
@@ -172,11 +174,17 @@ def main():
     
     print("Loading trained classifier...")
     try:
-        with open(CLASSIFIER_PATH, 'rb') as f:
-            classifier = pickle.load(f)
+        if conf_win.HAS_ONNX:
+            onnx_session = ort.InferenceSession(CLASSIFIER_PATH_ONNX)
+            input_name = onnx_session.get_inputs()[0].name
+            print("ONNX classifier loaded successfully.")
+        else:
+            with open(CLASSIFIER_PATH_PKL, 'rb') as f:
+                classifier = pickle.load(f)
+            print(f"Classifier classes: {classifier.classes_}")
+
         with open(SCALER_PATH, 'rb') as f:
             scaler = pickle.load(f)
-        print(f"Classifier classes: {classifier.classes_}")
     except Exception as e:
         print(f"Error loading classifier: {e}")
         return
@@ -185,17 +193,15 @@ def main():
     print("\nPress 'a' to analyze trajectory, or continue...")
     
     motion_gate = MotionGate(
-    buffer_size=20,
-    velocity_threshold=0.16,     # Adjust if needed
-    acceleration_threshold=0.6   # Adjust if needed
+    buffer_size=conf_win.MOTION_BUFFER_SIZE,
+    velocity_threshold=conf_win.VELOCITY_THRESHOLD,          # Adjust if needed
+    acceleration_threshold=conf_win.ACCELERATION_THRESHOLD   # Adjust if needed
 )
     dynamic_detector = DynamicGestureDetector()
     
     frame_count = 0
     fps_time = time.time()
-    inference_times = deque(maxlen=30)
-    
-    confidence_threshold = 0.65
+    inference_times = deque(maxlen=conf_win.INFERENCE_HISTORY_SIZE)
     
     while True:
         ret, frame = cap.read()
@@ -233,14 +239,19 @@ def main():
             # # Static path: MLP classification
             if motion_type == 'static':
                 features = extract_features(landmarks).reshape(1, -1)
-                # print(features)
                 features_scaled = scaler.transform(features)
+                if conf_win.HAS_ONNX:
+                    outputs = onnx_session.run(None, {input_name: features_scaled})
+                    prediction = outputs[0][0]
+                    prob_dict = outputs[1][0]
+                    max_confidence = prob_dict[prediction]
+                    predicted_gesture = prediction
+                else:
+                    prediction = classifier.predict(features_scaled)[0]
+                    confidence_values = classifier.predict_proba(features_scaled)[0]
+                    max_confidence = np.max(confidence_values)
                 
-                prediction = classifier.predict(features_scaled)[0]
-                confidence_values = classifier.predict_proba(features_scaled)[0]
-                max_confidence = np.max(confidence_values)
-                
-                if max_confidence > confidence_threshold:
+                if max_confidence > conf_win.STATIC_CONFIDENCE_THRESHOLD:
                     predicted_gesture = prediction
                     confidence = max_confidence
                 else:
@@ -255,11 +266,10 @@ def main():
                     'fingertips': motion_gate.get_trajectory(method='fingertips')
                 }
                 best_gesture, best_confidence = dynamic_detector.detect_best_match(trajectory_by_method)
-                if best_confidence > 0.85:  # Confidence threshold
+                if best_confidence > conf_win.DYNAMIC_CONFIDENCE_THRESHOLD:  # Confidence threshold
                     predicted_gesture = best_gesture
                     confidence = best_confidence
-                    if time.time() - last_visualize > 5:
-                        visualization = True
+                    if time.time() - last_visualize > conf_win.DYNAMIC_VISUALIZATION_INTERVAL:
                         last_visualize = time.time()
                 else:
                     predicted_gesture = f"no_gesture but almost {best_gesture}"
@@ -295,11 +305,6 @@ def main():
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         cv2.imshow('Gesture Recognition', annotated_frame)
-
-        # visualization
-        # if visualization:
-        #     dynamic_detector.visualize_templates(trajectory_by_method, normalize=True)
-        #     visualization = False
         
         if cv2.waitKey(1) & 0xFF == 27:
             print("\nExit")

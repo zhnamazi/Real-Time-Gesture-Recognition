@@ -13,11 +13,16 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import seaborn as sns
 from sklearn.svm import SVC
+import skl2onnx
+from skl2onnx.common.data_types import FloatTensorType
 
 MODEL_TYPE = 'mlp' # Options: 'rf', 'svm', 'mlp'
 CSV_FILE = "./datasets/hand_gestures_dataset_v6.csv"
 MODEL_PATH = f"./training/artifacts/{MODEL_TYPE}/gesture_classifier_{MODEL_TYPE}.pkl"
 SCALER_PATH = "./training/artifacts/gesture_scaler.pkl"
+ONNX_PATH = f"./training/artifacts/{MODEL_TYPE}/gesture_classifier_{MODEL_TYPE}.onnx"
+has_random_state = True  # Flag to check if the classifier has a random_state attribute
+save_onnx = True  # Flag to determine whether to save the model in ONNX format
 
 print("Loading dataset...")
 df = pd.read_csv(CSV_FILE)
@@ -96,14 +101,28 @@ plt.tight_layout()
 plt.savefig(f'./training/artifacts/{MODEL_TYPE}/confusion_matrix.png')
 print("\nConfusion matrix saved as confusion_matrix.png")
 
+if not has_random_state:
+    # Remove random_state attribute if it exists
+    if hasattr(classifier, '_random_state'):
+        classifier._random_state = None
+    if hasattr(classifier, 'random_state'):
+        classifier.random_state = None
+
 # Save model and scaler
 with open(MODEL_PATH, 'wb') as f:
-    pickle.dump(classifier, f)
+    pickle.dump(classifier, f, protocol=4)
 print(f"\nModel saved to {MODEL_PATH}")
 
 with open(SCALER_PATH, 'wb') as f:
-    pickle.dump(scaler, f)
+    pickle.dump(scaler, f, protocol=4)
 print(f"Scaler saved to {SCALER_PATH}")
+
+# Save the model in onnx version
+if save_onnx:
+    initial_type = [('float_input', FloatTensorType([None, X_train.shape[1]]))]
+    onnx_model = skl2onnx.convert_sklearn(classifier, initial_types=initial_type)
+    with open(ONNX_PATH, "wb") as f:
+        f.write(onnx_model.SerializeToString())
 
 # Model info for Raspberry Pi
 print("\n--- Model Info ---")
