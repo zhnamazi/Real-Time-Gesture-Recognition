@@ -1,6 +1,7 @@
 """
 Main script for real-time hand gesture recognition using MediaPipe Hand Landmarker and a trained classifier.
 This script captures hand gestures from a webcam, classifies them as static or dynamic, and displays the results in real-time.
+This version is specifically for Windows, using the configuration from conf_win.py.
 """
 
 import math
@@ -67,10 +68,6 @@ def draw_landmarks_on_image(rgb_image, detection_result):
             y2 = int(end_point.y * h)
             
             cv2.line(annotated_image, (x1, y1), (x2, y2), (255, 0, 0), 2)
-        
-        # label = handedness[0].category_name
-        # cv2.putText(annotated_image, label, (10, 30),
-        #            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     
     return annotated_image
 
@@ -193,10 +190,10 @@ def main():
     print("\nPress 'a' to analyze trajectory, or continue...")
     
     motion_gate = MotionGate(
-    buffer_size=conf_win.MOTION_BUFFER_SIZE,
-    velocity_threshold=conf_win.VELOCITY_THRESHOLD,          # Adjust if needed
-    acceleration_threshold=conf_win.ACCELERATION_THRESHOLD   # Adjust if needed
-)
+        buffer_size=conf_win.MOTION_BUFFER_SIZE,
+        velocity_threshold=conf_win.VELOCITY_THRESHOLD,          # Adjust if needed
+        acceleration_threshold=conf_win.ACCELERATION_THRESHOLD   # Adjust if needed
+    )
     dynamic_detector = DynamicGestureDetector()
     
     frame_count = 0
