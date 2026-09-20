@@ -19,10 +19,6 @@ from dynamic_detection import DynamicGestureDetector
 import onnxruntime as ort
 from config import conf_pi
 
-MODEL_PATH = conf_pi.MODEL_PATH
-CLASSIFIER_PATH_PKL = conf_pi.CLASSIFIER_PATH_PKL
-SCALER_PATH = conf_pi.SCALER_PATH
-CLASSIFIER_PATH_ONNX = conf_pi.CLASSIFIER_PATH_ONNX
 
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),
@@ -146,18 +142,22 @@ def extract_features(landmarks):
 def main():
     picam2 = Picamera2()
     video_config = picam2.create_video_configuration(
-        main={"size": (conf_pi.FRAME_WIDTH, conf_pi.FRAME_HEIGHT), "format": "RGB888"}
+        main={"size": (conf_pi.FRAME_WIDTH, conf_pi.FRAME_HEIGHT), "format": "RGB888"},
+        controls={"FrameDurationLimits":(33333,33333)}
     )
+    picam2.set_controls({
+        "ExposureTime": 10000, 
+        "AnalogueGain": 2.0
+    })
     picam2.configure(video_config)
     picam2.start()
-
-    last_visualize = time.time()
     
     print("Loading Hand Landmarker...")
     try:
-        base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
+        base_options = python.BaseOptions(model_asset_path=conf_pi.MODEL_PATH)
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
+            running_mode=vision.RunningMode.VIDEO,
             num_hands=conf_pi.NUM_HANDS,
             min_hand_detection_confidence=conf_pi.MIN_HAND_DETECTION_CONFIDENCE,
             min_hand_presence_confidence=conf_pi.MIN_HAND_PRESENCE_CONFIDENCE,
@@ -168,25 +168,24 @@ def main():
         print(f"Error loading Hand Landmarker: {e}")
         return
     
-    print("Loading trained classifier...")
+    print("Loading static classifier...")
     try:
         if conf_pi.HAS_ONNX:
-            onnx_session = ort.InferenceSession(CLASSIFIER_PATH_ONNX)
+            onnx_session = ort.InferenceSession(conf_pi.CLASSIFIER_PATH_ONNX)
             input_name = onnx_session.get_inputs()[0].name
             print("ONNX classifier loaded successfully.")
         else:
-            with open(CLASSIFIER_PATH_PKL, 'rb') as f:
+            with open(conf_pi.CLASSIFIER_PATH_PKL, 'rb') as f:
                 classifier = pickle.load(f)
-            print(f"Classifier classes: {classifier.classes_}")
+            print("Pickle classifier loaded successfully.")
 
-        with open(SCALER_PATH, 'rb') as f:
+        with open(conf_pi.SCALER_PATH, 'rb') as f:
             scaler = pickle.load(f)
     except Exception as e:
         print(f"Error loading classifier: {e}")
         return
     
     print("Press ESC to exit")
-    print("\nPress 'a' to analyze trajectory, or continue...")
     
     motion_gate = MotionGate(
         buffer_size=conf_pi.MOTION_BUFFER_SIZE,
@@ -205,21 +204,24 @@ def main():
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
         
         start_time = time.perf_counter()
-        detection_result = detector.detect(mp_image)
+        frame_timestamp_ms = int(time.time() * 1000)
+        detection_result = detector.detect_for_video(mp_image, frame_timestamp_ms)
         end_time = time.perf_counter()
         
         inference_ms = (end_time - start_time) * 1000
         inference_times.append(inference_ms)
         avg_inference_ms = np.mean(inference_times)
+
+        if conf_pi.LANDMARK_VISUALIZATION:
+            annotated_frame = draw_landmarks_on_image(rgb_frame, detection_result)
+            rgb_frame = annotated_frame  # Update rgb_frame for further processing
         
-        annotated_frame = draw_landmarks_on_image(rgb_frame, detection_result)
-        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
         
-        h, w, _ = annotated_frame.shape
+        h, w, _ = rgb_frame.shape
         
-        predicted_gesture = "no_gesture"
+        predicted_gesture = "No Gesture"
         confidence = 0.0
-        motion_type = "unknown"
+        motion_type = "Unknown"
         
         if len(detection_result.hand_landmarks) > 0:
             landmarks = detection_result.hand_landmarks[0]
@@ -247,7 +249,7 @@ def main():
                     predicted_gesture = prediction
                     confidence = max_confidence
                 else:
-                    predicted_gesture = "no_gesture"
+                    predicted_gesture = "No Gesture"
                     confidence = 1.0 - max_confidence
             
             # Dynamic path: trajectory analysis
@@ -258,45 +260,49 @@ def main():
                     'fingertips': motion_gate.get_trajectory(method='fingertips')
                 }
                 best_gesture, best_confidence = dynamic_detector.detect_best_match(trajectory_by_method)
-                if best_confidence > conf_pi.DYNAMIC_CONFIDENCE_THRESHOLD:  # Confidence threshold
+                if best_confidence > conf_pi.DYNAMIC_CONFIDENCE_THRESHOLD:
                     predicted_gesture = best_gesture
                     confidence = best_confidence
-                    if time.time() - last_visualize > conf_pi.DYNAMIC_VISUALIZATION_INTERVAL:
-                        last_visualize = time.time()
                 else:
-                    predicted_gesture = f"no_gesture but almost {best_gesture}"
+                    predicted_gesture = f"No Gesture"
                
         
         # Draw status
         y_offset = 30
-        cv2.putText(annotated_frame, f"Motion: {motion_type}", (10, y_offset),
+        cv2.putText(rgb_frame, f"Motion: {motion_type}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         y_offset += 30
-        gesture_color = (0, 255, 0) if predicted_gesture != "no_gesture" else (0, 255, 255)
-        cv2.putText(annotated_frame, f"Gesture: {predicted_gesture}", (10, y_offset),
+        gesture_color = (0, 255, 0) if predicted_gesture != "No Gesture" else (255, 255, 0)
+        cv2.putText(rgb_frame, f"Gesture: {predicted_gesture}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, gesture_color, 2)
         
         y_offset += 30
-        cv2.putText(annotated_frame, f"Confidence: {confidence:.2f}", (10, y_offset),
+        cv2.putText(rgb_frame, f"Confidence: {confidence:.2f}", (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         # FPS and inference time
         frame_count += 1
         elapsed_time = time.time() - fps_time
+        fps_text = None
         if elapsed_time > 1.0:
             fps = frame_count / elapsed_time
             fps_text = f"FPS: {fps:.1f}"
-            cv2.putText(annotated_frame, fps_text, (10, h - 40),
+            cv2.putText(rgb_frame, fps_text, (10, h - 40),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             frame_count = 0
             fps_time = time.time()
         
         inference_text = f"Inference: {avg_inference_ms:.1f}ms"
-        cv2.putText(annotated_frame, inference_text, (10, h - 10),
+        cv2.putText(rgb_frame, inference_text, (10, h - 10),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        cv2.imshow('Gesture Recognition', annotated_frame)
+
+        if conf_pi.STREAM_VISUALIZATION:
+            display_frame = cv2.resize(rgb_frame, (conf_pi.WINDOW_WIDTH, conf_pi.WINDOW_HEIGHT), interpolation=cv2.INTER_NEAREST)
+            display_frame = cv2.cvtColor(display_frame, cv2.COLOR_RGB2BGR)
+            cv2.imshow('Gesture Recognition', display_frame)
+        else:
+            print(f"frame results: motion_type={motion_type} gesture={predicted_gesture} confidence={confidence} inference_time={inference_text} fps={fps_text}")
         
         if cv2.waitKey(1) & 0xFF == 27:
             print("\nExit")
