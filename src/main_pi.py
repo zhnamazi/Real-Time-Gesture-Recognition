@@ -264,7 +264,7 @@ def main():
                     predicted_gesture = best_gesture
                     confidence = best_confidence
                 else:
-                    predicted_gesture = f"No Gesture"
+                    predicted_gesture = f"No Gesture but almost {best_gesture} with {best_confidence}"
                
         
         # Draw status

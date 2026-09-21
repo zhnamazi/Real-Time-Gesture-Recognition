@@ -295,7 +295,7 @@ class DynamicGestureDetector:
 
         for method_name in ['wrist', 'center', 'fingertips']:
             trajectory = trajectory_by_method.get(method_name)
-            if trajectory is None or len(trajectory) < 10:
+            if trajectory is None or len(trajectory) < 6:
                 dtw_scores[method_name] = 0.0
                 continue
 

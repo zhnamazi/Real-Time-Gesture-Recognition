@@ -1,11 +1,14 @@
 """
 This script captures dynamic gesture templates using a webcam and the MediaPipe Hand Landmarker model.
 It allows the user to select gestures, record their trajectories, and save them for later use.
+This script is modified to generate another templates set on Raspberry Pi
 """
 
 import sys
 import cv2
 import numpy as np
+import pickle
+from picamera2 import Picamera2
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import mediapipe as mp
@@ -16,19 +19,14 @@ parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 from src.motion_gate import MotionGate
 
-MODEL_PATH = "./src/hand_landmarker.task"
+MODEL_PATH = "./src/artifacts/hand_landmarker.task"
 TEMPLATES_DIR = "./datasets/dynamic_templates"
 
 # Create templates directory if it doesn't exist
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
 GESTURE_NAMES = ["increase_volume", "decrease_volume", "bye"]
-# Define trajectory method for each gesture
-GESTURE_METHODS = {
-    "increase_volume": "wrist",    # Wrist moves diagonally up
-    "decrease_volume": "wrist",    # Wrist moves diagonally down
-    "bye": "center"                # Palm center moves (hand shape changes, wrist stable)
-}
+
 
 def save_template(gesture_name, trajectories_dict, sample_num):
     """
@@ -43,23 +41,24 @@ def save_template(gesture_name, trajectories_dict, sample_num):
         None
     """
     filename = f"{TEMPLATES_DIR}/{gesture_name}_{sample_num}.pkl"
-    print(trajectories_dict)
-    # with open(filename, 'wb') as f:
-    #     pickle.dump(trajectories_dict, f)
+    with open(filename, 'wb') as f:
+        pickle.dump(trajectories_dict, f)
     num_frames = len(trajectories_dict['wrist'])
     print(f"Saved: {filename} (length: {num_frames} frames)")
 
 
 def main():
-    cap = cv2.VideoCapture(0)
-    
-    if not cap.isOpened():
-        print("Error: Cannot open camera")
-        return
-    
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    cap.set(cv2.CAP_PROP_FPS, 30)
+    picam2 = Picamera2()    
+    video_config = picam2.create_video_configuration(
+        main={"size": (640,480), "format": "RGB888"},
+        controls={"FrameDurationLimits":(33333,33333)}
+    )
+    picam2.set_controls({
+        "ExposureTime": 10000, 
+        "AnalogueGain": 2.0
+    })
+    picam2.configure(video_config)
+    picam2.start()
     
     print("Loading Hand Landmarker...")
     try:
@@ -67,8 +66,8 @@ def main():
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
             num_hands=1,
-            min_hand_detection_confidence=0.5,
-            min_hand_presence_confidence=0.5,
+            min_hand_detection_confidence=0.1,
+            min_hand_presence_confidence=0.1,
             min_tracking_confidence=0.5
         )
         detector = vision.HandLandmarker.create_from_options(options)
@@ -77,7 +76,7 @@ def main():
         return
     
     motion_gate = MotionGate(
-        buffer_size=40,
+        buffer_size=12,
         velocity_threshold=0.16,
         acceleration_threshold=0.6
     )
@@ -88,8 +87,7 @@ def main():
     print("DYNAMIC GESTURE TEMPLATE CAPTURE")
     print("="*60)
     for i, gesture in enumerate(GESTURE_NAMES):
-        method = GESTURE_METHODS[gesture]
-        print(f"{i}: {gesture:20} (trajectory method: {method})")
+        print(f"{i}: {gesture:20}")
     
     recording = False
     current_gesture = None
@@ -104,21 +102,17 @@ def main():
     print("="*60 + "\n")
     
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        rgb_frame = picam2.capture_array()
         
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
         detection_result = detector.detect(mp_image)
         
-        h, w, _ = frame.shape
+        h, w, _ = rgb_frame.shape
         
         if len(detection_result.hand_landmarks) > 0:
             landmarks = detection_result.hand_landmarks[0]
             
             motion_gate.update(landmarks)
-            # motion_type = motion_gate.get_motion_type()
             
             if recording and current_gesture is not None:
                 # Collect trajectory while recording
@@ -129,34 +123,36 @@ def main():
             for landmark in landmarks:
                 x = int(landmark.x * w)
                 y = int(landmark.y * h)
-                cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
+                cv2.circle(rgb_frame, (x, y), 5, (0, 255, 0), -1)
         
         # Display status
         status_color = (0, 255, 0)
         if current_gesture is not None:
             gesture_text = f"Selected: {current_gesture}"
-            cv2.putText(frame, gesture_text, (10, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(rgb_frame, gesture_text, (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
         
         if recording:
             status_text = "REC: Recording... (SPACE to stop, s to save, r to reset)"
-            status_color = (0, 0, 255)
+            status_color = (255, 0, 0)
             if current_trajectory is not None:
                 frame_text = f"Frames: {len(current_trajectory['wrist'])}"
-                cv2.putText(frame, frame_text, (10, 90),
+                cv2.putText(rgb_frame, frame_text, (10, 90),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         else:
             status_text = "Press 0-2 to select gesture, SPACE to record"
         
-        cv2.putText(frame, status_text, (10, 60),
+        cv2.putText(rgb_frame, status_text, (10, 60),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
         
         # Display sample count
         counts_text = " | ".join([f"{g}: {sample_count[g]}" for g in GESTURE_NAMES])
-        cv2.putText(frame, counts_text, (10, h - 10),
+        cv2.putText(rgb_frame, counts_text, (10, h - 10),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         
-        cv2.imshow('Dynamic Gesture Capture', frame)
+        display_frame = cv2.resize(rgb_frame, (320, 240), interpolation=cv2.INTER_NEAREST)
+        display_frame = cv2.cvtColor(display_frame, cv2.COLOR_RGB2BGR)
+        cv2.imshow('Dynamic Gesture Capture', display_frame)
         
         key = cv2.waitKey(1) & 0xFF
         
@@ -168,8 +164,7 @@ def main():
             gesture_idx = int(chr(key))
             if gesture_idx < len(GESTURE_NAMES):
                 current_gesture = GESTURE_NAMES[gesture_idx]
-                method = GESTURE_METHODS[current_gesture]
-                print(f"\nSelected gesture: {current_gesture} (trajectory method: {method})")
+                print(f"\nSelected gesture: {current_gesture}")
                 recording = False
                 current_trajectory = None
         
@@ -213,15 +208,14 @@ def main():
             motion_gate.velocities.clear()
             print("Reset last recording.")
     
-    cap.release()
+    picam2.stop()
     cv2.destroyAllWindows()
     
     print("\n" + "="*60)
     print("CAPTURE COMPLETE")
     print("="*60)
     for gesture in GESTURE_NAMES:
-        method = GESTURE_METHODS[gesture]
-        print(f"{gesture:20} (method: {method:10}): {sample_count[gesture]} samples")
+        print(f"{gesture:20}: {sample_count[gesture]} samples")
     print("="*60)
 
 

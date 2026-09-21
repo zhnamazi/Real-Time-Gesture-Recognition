@@ -4,6 +4,7 @@ datasets/
 docs/
 research/
 src/__pycache__/
+src/config/__pycache__
 training/artifacts/
 document_draft.txt
 project_structure.txt
